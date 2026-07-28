@@ -1,0 +1,83 @@
+name: Publish Website
+
+on:
+  push:
+    branches:
+      - trunk
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wpcom-mcp-adapter-production
+  cancel-in-progress: true
+
+jobs:
+  Publish-Website:
+    name: Publish Website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          show-progress: ${{ runner.debug == '1' && 'true' || 'false' }}
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Resolve plugin version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(php -r '$source = file_get_contents("mcp-adapter.php"); if (false === $source || 1 !== preg_match("/define\\(\\s*\\x27WP_MCP_VERSION\\x27\\s*,\\s*\\x27([^\\x27]+)\\x27\\s*\\)/", $source, $matches)) { fwrite(STDERR, "Unable to read WP_MCP_VERSION.\\n"); exit(1); } echo $matches[1];')"
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "WP_MCP_VERSION is not a normalized semantic version: $version" >&2
+            exit 1
+          fi
+
+          printf 'COMPOSER_ROOT_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          echo "Using COMPOSER_ROOT_VERSION=$version"
+
+      - name: Validate Composer metadata
+        run: composer validate --strict --no-check-publish
+
+      - name: Install locked production dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Check production platform requirements
+        run: composer check-platform-reqs --no-dev
+
+      - name: Verify deployment inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f mcp-adapter.php
+          test -d includes
+          test -r vendor/autoload.php
+          test -r vendor/autoload_packages.php
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wpcom
+          path: |
+            mcp-adapter.php
+            includes/
+            vendor/
+            readme.txt
+            README.md
+            LICENSE.md
+            CHANGELOG.md
+            !vendor/bin
+            !vendor/bin/**
+          if-no-files-found: error
+          retention-days: 1
