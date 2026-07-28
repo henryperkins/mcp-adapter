@@ -90,6 +90,26 @@ jobs:
       - name: Validate Composer metadata
         run: composer validate --strict --no-check-publish
 
+      - name: Remove development autoload rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+          $path = "composer.json";
+          $contents = file_get_contents( $path );
+          if ( false === $contents ) {
+              fwrite( STDERR, "Unable to read composer.json.\n" );
+              exit( 1 );
+          }
+          $composer = json_decode( $contents, true, 512, JSON_THROW_ON_ERROR );
+          unset( $composer["autoload-dev"] );
+          $encoded = json_encode( $composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR );
+          if ( false === file_put_contents( $path, $encoded . PHP_EOL ) ) {
+              fwrite( STDERR, "Unable to write production composer.json.\n" );
+              exit( 1 );
+          }
+          '
+
       - name: Install locked production dependencies
         run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
 
@@ -104,6 +124,10 @@ jobs:
           test -d includes
           test -r vendor/autoload.php
           test -r vendor/autoload_packages.php
+          if grep -Fq "/tests/" vendor/composer/jetpack_autoload_classmap.php; then
+            echo "Jetpack Autoloader contains development test mappings." >&2
+            exit 1
+          fi
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -142,6 +166,8 @@ required = (
     'permissions:\n  contents: read',
     'COMPOSER_ROOT_VERSION',
     'composer validate --strict --no-check-publish',
+    'unset( $composer["autoload-dev"] )',
+    'grep -Fq "/tests/" vendor/composer/jetpack_autoload_classmap.php',
     'composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader',
     'composer check-platform-reqs --no-dev',
     'test -r vendor/autoload.php',
@@ -179,6 +205,16 @@ if unzip -Z1 wpcom.zip | grep -Eq '(^|/)(tests|node_modules|vendor/bin|\.github)
   echo 'Artifact contains an excluded path.' >&2
   exit 1
 fi
+python - <<'PY'
+from zipfile import ZipFile
+
+with ZipFile('wpcom.zip') as archive:
+    manifest = archive.read('vendor/composer/jetpack_autoload_classmap.php').decode()
+
+assert '/tests/' not in manifest
+assert "'WP_CLI'" not in manifest
+print('production Jetpack classmap: PASS')
+PY
 ```
 
 Expected: both autoloader files and `mcp-adapter.php` are listed, and the exclusion check exits successfully.
