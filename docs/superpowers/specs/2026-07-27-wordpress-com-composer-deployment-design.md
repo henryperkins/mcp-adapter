@@ -103,6 +103,8 @@ Use a positive runtime allowlist:
 - `LICENSE.md`
 - `CHANGELOG.md`
 
+Explicitly exclude `vendor/bin/` if a production dependency creates it; executable development shims are not part of the runtime contract.
+
 Do not include tests, development tooling, repository metadata, GitHub workflows, Node dependencies, Composer manifests, or Composer lock files in the production artifact.
 
 ## WordPress.com activation
