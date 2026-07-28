@@ -77,6 +77,8 @@ composer check-platform-reqs --no-dev
 
 `composer install` must consume the committed lock file. The workflow must not run `composer update`.
 
+Validation runs against the committed `composer.json` first. Before installation, the runner removes only the root package's `autoload-dev` section from its ephemeral copy of `composer.json`. Jetpack Autoloader 5.0.21 merges the root development autoload map even for `composer install --no-dev`; leaving it in place causes the optimized production manifest to reference excluded test files and can map the global `WP_CLI` class to `tests/phpunit/Stubs/WpCliClasses.php`. The repository copy of `composer.json` remains unchanged.
+
 ### Build gates
 
 Before creating the artifact, fail unless all of the following are true:
@@ -86,6 +88,7 @@ Before creating the artifact, fail unless all of the following are true:
 - `mcp-adapter.php` exists.
 - `includes/` exists.
 - Composer reports that production platform requirements are satisfied.
+- `vendor/composer/jetpack_autoload_classmap.php` contains no `/tests/` paths and no test-provided `WP_CLI` mapping.
 
 A failed gate produces no `wpcom` artifact and therefore no WordPress.com deployment.
 
@@ -154,6 +157,7 @@ A deployment is accepted only when:
 - A push to `trunk` produces one successful `wpcom` artifact.
 - The artifact contains `vendor/autoload.php` and `vendor/autoload_packages.php`.
 - The artifact contains no `tests/`, `.github/`, `node_modules/`, or `vendor/bin/`.
+- The Jetpack classmap contains no references to excluded test files and does not shadow WordPress.com's `WP_CLI` class.
 - Activating the deployed plugin produces no missing-autoloader notice.
 - MCP Adapter and Flavor Agent MCP discovery work on hperkins.blog.
 - `vendor/` remains untracked in Git.
